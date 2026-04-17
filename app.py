@@ -105,8 +105,8 @@ with st.sidebar:
     if st.button("🚀 Generate Quiz", type="primary", use_container_width=True):
         if not user_api_key:
             st.error("⚠️ Please enter your Gemini API Key at the top of the sidebar first!")
-        elif not user_api_key.startswith("AI"):
-            st.warning("⚠️ That doesn't look like a valid Google API key. It should start with 'AI'.")
+        elif len(user_api_key) < 35:
+            st.warning("⚠️ That doesn't look like a valid Google API key. It should be longer.")
         else:
             current_time = time.time()
             time_since_last = current_time - st.session_state.last_request_time
