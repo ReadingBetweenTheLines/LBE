@@ -2,16 +2,30 @@ import streamlit as st
 import os
 import json
 import time
-import re
+import random
 from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 
 # --- CONFIGURATION & SECURITY ---
 st.set_page_config(page_title="LBE UTBK 2026 Quiz", page_icon="🎓", layout="wide")
 load_dotenv()
 
+# --- MOBILE UI PATCH ---
+st.markdown("""
+<style>
+    .stMarkdown p { line-height: 1.7 !important; margin-bottom: 15px !important; font-size: 16px !important; }
+    div[role="radiogroup"] > label { margin-bottom: 14px !important; padding: 4px 0px; }
+    .element-container:has(table) { overflow-x: auto; }
+    @media (max-width: 768px) {
+        .block-container { padding-top: 2rem !important; padding-left: 1.2rem !important; padding-right: 1.2rem !important; }
+        h1 { font-size: 26px !important; }
+        h3 { font-size: 20px !important; }
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # --- SESSION STATE INITIALIZATION ---
-# Streamlit refreshes the page on every click. We need memory to remember the quiz.
 if "quiz_data" not in st.session_state:
     st.session_state.quiz_data = None
 if "submitted" not in st.session_state:
@@ -19,7 +33,7 @@ if "submitted" not in st.session_state:
 if "last_request_time" not in st.session_state:
     st.session_state.last_request_time = 0
 
-# --- THE ENGINE ROOM (Lite-Model Overdrive) ---
+# --- THE ENGINE ROOM ---
 UNIVERSAL_CONSTRAINTS = """
 CRITICAL DISTRACTOR CALIBRATION (LITE-MODEL OVERRIDE):
 You must strictly engineer the 5 options (A, B, C, D, E) using this exact blueprint:
@@ -59,52 +73,28 @@ def get_prompt_template(format_choice, topic):
     else: 
         specifics = "1. TEXT: Write an analytical Soshum text (300-400 words) focusing on sociology or history.\n2. QUESTIONS: 4 questions (Author's Tone, Societal Inference, Argumentative Structure, Social Causality)."
         
-    json_rules = f"""
-    CRITICAL OUTPUT FORMAT: You MUST output the entire response as a raw JSON object matching this exact schema. 
-    DO NOT wrap it in markdown code blocks (no ```json). 
-    CRITICAL JSON RULE: You MUST properly escape all internal quotation marks (e.g., \\"word\\") and use \\n for line breaks inside strings.
-    {JSON_SCHEMA}
-    """ 
+    json_rules = f"\nCRITICAL OUTPUT FORMAT: Output strictly in JSON format matching this schema:\n{JSON_SCHEMA}" 
     return base_intro + specifics + UNIVERSAL_CONSTRAINTS + json_rules
 
 # --- VISUAL FRONTEND ---
 st.title("🎓 Interactive UTBK LBE 2026")
 
-# Generator UI & BYOK Authentication
 with st.sidebar:
     st.header("🔑 Authentication")
+    user_api_key = st.text_input("Enter your Gemini API Key:", type="password", placeholder="Paste your key here...")
     
-    # The Secure Input Field
-    user_api_key = st.text_input(
-        "Enter your Gemini API Key:", 
-        type="password", 
-        placeholder="Paste your key here..."
-    )
-    
-    # The Built-in Tutorial for Students
     with st.expander("❓ How to get a FREE API key"):
-        st.markdown("""
-        **It takes 30 seconds and is completely free:**
-        1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
-        2. Sign in with your Google Account.
-        3. Click the blue **Create API key** button.
-        4. Copy the long string of text and paste it into the box above.
-        
-        *Your key is safe. It is never saved, stored, or logged by this website. It is wiped the moment you close this tab.*
-        """)
+        st.markdown("**It takes 30 seconds and is completely free:**\n1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).\n2. Sign in with your Google Account.\n3. Click **Create API key**.\n4. Copy and paste it above.")
         
     st.divider()
     
     st.header("⚙️ Generator Settings")
-    format_choice = st.selectbox(
-        "Select Format:",
-        ["1. Standard Text", "2. Dual Passages", "3. Digital Thread (Table)", "4. Quantitative/Saintek", "5. Soshum"]
-    )
+    format_choice = st.selectbox("Select Format:", ["1. Standard Text", "2. Dual Passages", "3. Digital Thread (Table)", "4. Quantitative/Saintek", "5. Soshum"])
     user_topic = st.text_input("Topic:", placeholder="Leave blank for random...")
     
     if st.button("🚀 Generate Quiz", type="primary", use_container_width=True):
         if not user_api_key:
-            st.error("⚠️ Please enter your Gemini API Key at the top of the sidebar first!")
+            st.error("⚠️ Please enter your Gemini API Key first!")
         elif len(user_api_key) < 35:
             st.warning("⚠️ That doesn't look like a valid Google API key. It should be longer.")
         else:
@@ -112,45 +102,40 @@ with st.sidebar:
             time_since_last = current_time - st.session_state.last_request_time
             
             if time_since_last < 60:
-                wait_time = int(60 - time_since_last)
-                st.warning(f"⏳ API Cooldown Active. Please wait {wait_time} seconds.")
+                st.warning(f"⏳ API Cooldown Active. Please wait {int(60 - time_since_last)} seconds.")
             else:
                 st.session_state.last_request_time = current_time
                 
                 with st.spinner("Generating interactive quiz..."):
-                    # Use the USER'S key
                     client = genai.Client(api_key=user_api_key) 
                     format_num = format_choice.split(".")[0]
-                    final_topic = user_topic.strip() or "a completely random, highly niche UTBK topic."
+                    
+                    # THE TOPIC RANDOMIZER
+                    if user_topic.strip():
+                        final_topic = user_topic.strip()
+                    else:
+                        diverse_topics = ["modern pop culture and social media", "economics and bizarre business trends", "sports history or e-sports", "arts and music history", "a weird historical event", "urban legends or human behavior", "global food trends", "modern moral dilemmas"]
+                        final_topic = random.choice(diverse_topics)
                     
                     prompt = get_prompt_template(format_num, final_topic)
                     
                     try:
-                        response = client.models.generate_content(model='gemini-2.5-flash-lite', contents=prompt)
-                        raw_text = response.text
+                        # NATIVE JSON FORCING: This makes the API physically incapable of outputting broken formatting.
+                        response = client.models.generate_content(
+                            model='gemini-2.5-flash-lite', 
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                response_mime_type="application/json"
+                            )
+                        )
+                        
+                        st.session_state.quiz_data = json.loads(response.text)
+                        st.session_state.submitted = False
                             
-                        # THE CLEANER: Hunt down the JSON block even if the AI added conversational filler
-                        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-                            
-                        if match:
-                            clean_json = match.group(0)
-                            # Fix common Lite-model formatting mistakes before parsing
-                            clean_json = clean_json.replace("```json", "").replace("```", "").strip()
-                                
-                            st.session_state.quiz_data = json.loads(clean_json)
-                            st.session_state.submitted = False
-                        else:
-                            st.error("The AI did not return a recognizable JSON format. Please click generate again.")
-                            # Prints the raw broken text to the terminal so you can debug what the AI actually said
-                            print("BROKEN AI OUTPUT:\n", raw_text) 
-                                
-                    except json.JSONDecodeError as e:
-                        st.error("The AI made a syntax error while formatting the JSON. Click generate again.")
-                        print(f"JSON ERROR: {e}\nRAW TEXT:\n{clean_json}")
                     except Exception as e:
                         error_msg = str(e)
                         if "429" in error_msg:
-                            st.warning("🚦 The server is currently too busy! We hit our 1-minute speed limit. Please wait 15 seconds and try again.")
+                            st.warning("🚦 The server is busy! Hit speed limit. Try again in 15 seconds.")
                         else:
                             st.error(f"Generation Error: {e}")
 
@@ -158,76 +143,57 @@ with st.sidebar:
 if st.session_state.quiz_data:
     quiz = st.session_state.quiz_data
     
-    # 1. Display the Text (It will automatically render tables if Format 3 was chosen)
     st.markdown("### Reading Passage")
-    st.markdown(quiz["text"], unsafe_allow_html=True)
+    st.markdown(quiz.get("text", "Text missing."), unsafe_allow_html=True)
     st.divider()
     
-    # 2. Display the Questions interactively
     st.markdown("### Questions")
-    
-    # We create a dictionary to store the user's selected answers
     user_answers = {}
     
-    for i, q in enumerate(quiz["questions"]):
-        st.markdown(f"**{i+1}. {q['question_stem']}**")
-        
-        # Create radio buttons for options
-        user_answers[i] = st.radio(
-            f"Select answer for question {i+1}", 
-            options=q["options"], 
-            key=f"q_{i}",
-            label_visibility="collapsed"
-        )
-        st.write("") # Add spacing
+    for i, q in enumerate(quiz.get("questions", [])):
+        st.markdown(f"**{i+1}. {q.get('question_stem', 'Question missing')}**")
+        user_answers[i] = st.radio(f"Select answer for {i+1}", options=q.get("options", []), key=f"q_{i}", label_visibility="collapsed")
+        st.write("") 
     
-    # 3. The Submit Button
     if not st.session_state.submitted:
         if st.button("Submit Answers", type="primary"):
             st.session_state.submitted = True
-            st.rerun() # Refresh the page to show results
+            st.rerun()
 
-    # 4. Show Explanations ONLY if submitted
     if st.session_state.submitted:
         st.divider()
         st.markdown("### 📊 Results & Explanations")
         
         score = 0
-        for i, q in enumerate(quiz["questions"]):
-            # THE SHIELD: Safely look for the index. If missing, look for alternatives.
+        for i, q in enumerate(quiz.get("questions", [])):
             correct_index = q.get("correct_answer_index", q.get("correct_answer", q.get("answer", 0)))
             
-            # If the AI accidentally output a letter (like "C") instead of a number (like 2)
             if isinstance(correct_index, str):
-                letter_map = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
                 clean_char = correct_index.strip().upper().replace('"', '')
-                correct_index = letter_map.get(clean_char, 0) # Default to 0 if it completely hallucinated
+                correct_index = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}.get(clean_char, 0) 
             
-            # Ensure it is a valid integer between 0 and 4 so it doesn't crash the list
             try:
                 correct_index = int(correct_index)
-                if correct_index < 0 or correct_index > 4:
-                    correct_index = 0
+                if correct_index < 0 or correct_index > 4: correct_index = 0
             except ValueError:
                 correct_index = 0
 
-            # Now safely grab the text
-            correct_text = q["options"][correct_index]
-            user_text = user_answers[i]
-            
-            if user_text == correct_text:
-                score += 1
-                st.success(f"**Question {i+1}: Correct!**")
-            else:
-                st.error(f"**Question {i+1}: Incorrect.** \n\nYou chose: {user_text} \n\nCorrect answer: {correct_text}")
-            
-            # Safely grab the explanation just in case it renamed that too
-            explanation_text = q.get("explanation", q.get("trap_planning", "No explanation provided by AI."))
-            st.info(f"**Explanation:** {explanation_text}")
-            st.write("---")
+            options = q.get("options", [])
+            if options and len(options) > correct_index:
+                correct_text = options[correct_index]
+                user_text = user_answers[i]
+                
+                if user_text == correct_text:
+                    score += 1
+                    st.success(f"**Question {i+1}: Correct!**")
+                else:
+                    st.error(f"**Question {i+1}: Incorrect.** \n\nYou chose: {user_text} \n\nCorrect answer: {correct_text}")
+                
+                explanation_text = q.get("explanation", q.get("trap_planning", "No explanation provided."))
+                st.info(f"**Explanation:** {explanation_text}")
+                st.write("---")
             
         st.subheader(f"Final Score: {score} / 4")
-        
         if st.button("Reset Quiz"):
             st.session_state.submitted = False
             st.rerun()
