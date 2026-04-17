@@ -129,9 +129,15 @@ with st.sidebar:
                             )
                         )
                         
-                        st.session_state.quiz_data = json.loads(response.text)
+                        # THE SCRUBBER: Forcibly remove any markdown backticks the AI hallucinates
+                        raw_text = response.text.replace("```json", "").replace("```", "").strip()
+                        
+                        st.session_state.quiz_data = json.loads(raw_text)
                         st.session_state.submitted = False
-                            
+                        
+                    except json.JSONDecodeError as e:
+                        st.error("The AI made a syntax error while formatting the JSON. Click generate again.")
+                        print(f"JSON ERROR: {e}\nRAW TEXT:\n{raw_text}")
                     except Exception as e:
                         error_msg = str(e)
                         if "429" in error_msg:
