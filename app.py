@@ -32,6 +32,8 @@ if "submitted" not in st.session_state:
     st.session_state.submitted = False
 if "last_request_time" not in st.session_state:
     st.session_state.last_request_time = 0
+if "quiz_vault" not in st.session_state:         
+    st.session_state.quiz_vault = []             
 
 # --- THE ENGINE ROOM (Prompt Splitter) ---
 LITE_CONSTRAINTS = """
@@ -166,6 +168,40 @@ with st.sidebar:
                             st.warning("🚦 The server is busy! Hit speed limit. Try again in 15 seconds.")
                         else:
                             st.error(f"Generation Error: {e}")
+
+
+# --- THE OFFLINE VAULT ---
+    st.divider()
+    st.header("🗄️ Offline Quiz Vault")
+    
+    # 1. The Save Button (Only shows up if a quiz is currently on screen)
+    if st.session_state.quiz_data:
+        if st.button("💾 Save Current Quiz to Vault", use_container_width=True):
+            # We add a tag so you know which model generated this specific quiz
+            quiz_copy = st.session_state.quiz_data.copy()
+            quiz_copy["source_model"] = selected_model_id 
+            st.session_state.quiz_vault.append(quiz_copy)
+            st.success(f"Added! Vault now holds {len(st.session_state.quiz_vault)} quizzes.")
+            
+    # 2. The Download Button (Only shows up if there is at least 1 quiz in the vault)
+    if len(st.session_state.quiz_vault) > 0:
+        st.info(f"📦 Quizzes ready for download: {len(st.session_state.quiz_vault)}")
+        
+        # Convert the Python vault array into a clean, formatted JSON string
+        vault_json = json.dumps(st.session_state.quiz_vault, indent=2)
+        
+        st.download_button(
+            label="📥 Download Vault (JSON)",
+            data=vault_json,
+            file_name="utbk_lbe_offline_bank.json",
+            mime="application/json",
+            type="primary",
+            use_container_width=True
+        )
+        
+        if st.button("🗑️ Clear Vault", use_container_width=True):
+            st.session_state.quiz_vault = []
+            st.rerun()
 
 # --- INTERACTIVE QUIZ UI ---
 if st.session_state.quiz_data:
