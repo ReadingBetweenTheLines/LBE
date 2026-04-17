@@ -157,7 +157,24 @@ if st.session_state.quiz_data:
         
         score = 0
         for i, q in enumerate(quiz["questions"]):
-            correct_index = q["correct_answer_index"]
+            # THE SHIELD: Safely look for the index. If missing, look for alternatives.
+            correct_index = q.get("correct_answer_index", q.get("correct_answer", q.get("answer", 0)))
+            
+            # If the AI accidentally output a letter (like "C") instead of a number (like 2)
+            if isinstance(correct_index, str):
+                letter_map = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
+                clean_char = correct_index.strip().upper().replace('"', '')
+                correct_index = letter_map.get(clean_char, 0) # Default to 0 if it completely hallucinated
+            
+            # Ensure it is a valid integer between 0 and 4 so it doesn't crash the list
+            try:
+                correct_index = int(correct_index)
+                if correct_index < 0 or correct_index > 4:
+                    correct_index = 0
+            except ValueError:
+                correct_index = 0
+
+            # Now safely grab the text
             correct_text = q["options"][correct_index]
             user_text = user_answers[i]
             
@@ -167,7 +184,9 @@ if st.session_state.quiz_data:
             else:
                 st.error(f"**Question {i+1}: Incorrect.** \n\nYou chose: {user_text} \n\nCorrect answer: {correct_text}")
             
-            st.info(f"**Explanation:** {q['explanation']}")
+            # Safely grab the explanation just in case it renamed that too
+            explanation_text = q.get("explanation", q.get("trap_planning", "No explanation provided by AI."))
+            st.info(f"**Explanation:** {explanation_text}")
             st.write("---")
             
         st.subheader(f"Final Score: {score} / 4")
