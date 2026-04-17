@@ -7,12 +7,8 @@ from google import genai
 from dotenv import load_dotenv
 
 # --- CONFIGURATION & SECURITY ---
-st.set_page_config(page_title="LBE UTBK json2026 Quiz", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="LBE UTBK 2026 Quiz", page_icon="🎓", layout="wide")
 load_dotenv()
-
-# We completely remove the sidebar input. 
-# It now secretly pulls from your .env file or Streamlit Secrets.
-api_key = os.environ.get("GEMINI_API_KEY") 
 
 # --- SESSION STATE INITIALIZATION ---
 # Streamlit refreshes the page on every click. We need memory to remember the quiz.
@@ -20,6 +16,8 @@ if "quiz_data" not in st.session_state:
     st.session_state.quiz_data = None
 if "submitted" not in st.session_state:
     st.session_state.submitted = False
+if "last_request_time" not in st.session_state:
+    st.session_state.last_request_time = 0
 
 # --- THE ENGINE ROOM (Lite-Model Overdrive) ---
 UNIVERSAL_CONSTRAINTS = """
@@ -72,8 +70,31 @@ def get_prompt_template(format_choice, topic):
 # --- VISUAL FRONTEND ---
 st.title("🎓 Interactive UTBK LBE 2026")
 
-# Generator UI
+# Generator UI & BYOK Authentication
 with st.sidebar:
+    st.header("🔑 Authentication")
+    
+    # The Secure Input Field
+    user_api_key = st.text_input(
+        "Enter your Gemini API Key:", 
+        type="password", 
+        placeholder="Paste your key here..."
+    )
+    
+    # The Built-in Tutorial for Students
+    with st.expander("❓ How to get a FREE API key"):
+        st.markdown("""
+        **It takes 30 seconds and is completely free:**
+        1. Go to [Google AI Studio](https://aistudio.google.com/app/apikey).
+        2. Sign in with your Google Account.
+        3. Click the blue **Create API key** button.
+        4. Copy the long string of text and paste it into the box above.
+        
+        *Your key is safe. It is never saved, stored, or logged by this website. It is wiped the moment you close this tab.*
+        """)
+        
+    st.divider()
+    
     st.header("⚙️ Generator Settings")
     format_choice = st.selectbox(
         "Select Format:",
@@ -82,40 +103,56 @@ with st.sidebar:
     user_topic = st.text_input("Topic:", placeholder="Leave blank for random...")
     
     if st.button("🚀 Generate Quiz", type="primary", use_container_width=True):
-        if not api_key:
-            st.error("API Key missing from environment/secrets!")
+        if not user_api_key:
+            st.error("⚠️ Please enter your Gemini API Key at the top of the sidebar first!")
+        elif not user_api_key.startswith("AI"):
+            st.warning("⚠️ That doesn't look like a valid Google API key. It should start with 'AI'.")
         else:
-            with st.spinner("Generating interactive quiz..."):
-                client = genai.Client(api_key=api_key)
-                format_num = format_choice.split(".")[0]
-                final_topic = user_topic.strip() or "a completely random, highly niche UTBK topic."
+            current_time = time.time()
+            time_since_last = current_time - st.session_state.last_request_time
+            
+            if time_since_last < 60:
+                wait_time = int(60 - time_since_last)
+                st.warning(f"⏳ API Cooldown Active. Please wait {wait_time} seconds.")
+            else:
+                st.session_state.last_request_time = current_time
                 
-                prompt = get_prompt_template(format_num, final_topic)
-                
-                try:
-                    response = client.models.generate_content(model='gemini-2.5-flash-lite', contents=prompt)
-                    raw_text = response.text
-                        
-                    # THE CLEANER: Hunt down the JSON block even if the AI added conversational filler
-                    match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-                        
-                    if match:
-                        clean_json = match.group(0)
-                        # Fix common Lite-model formatting mistakes before parsing
-                        clean_json = clean_json.replace("```json", "").replace("```", "").strip()
+                with st.spinner("Generating interactive quiz..."):
+                    # Use the USER'S key
+                    client = genai.Client(api_key=user_api_key) 
+                    format_num = format_choice.split(".")[0]
+                    final_topic = user_topic.strip() or "a completely random, highly niche UTBK topic."
+                    
+                    prompt = get_prompt_template(format_num, final_topic)
+                    
+                    try:
+                        response = client.models.generate_content(model='gemini-2.5-flash-lite', contents=prompt)
+                        raw_text = response.text
                             
-                        st.session_state.quiz_data = json.loads(clean_json)
-                        st.session_state.submitted = False
-                    else:
-                        st.error("The AI did not return a recognizable JSON format. Please click generate again.")
-                        # Prints the raw broken text to the terminal so you can debug what the AI actually said
-                        print("BROKEN AI OUTPUT:\n", raw_text) 
+                        # THE CLEANER: Hunt down the JSON block even if the AI added conversational filler
+                        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
                             
-                except json.JSONDecodeError as e:
-                    st.error("The AI made a syntax error while formatting the JSON. Click generate again.")
-                    print(f"JSON ERROR: {e}\nRAW TEXT:\n{clean_json}")
-                except Exception as e:
-                    st.error(f"Generation Error: {e}")
+                        if match:
+                            clean_json = match.group(0)
+                            # Fix common Lite-model formatting mistakes before parsing
+                            clean_json = clean_json.replace("```json", "").replace("```", "").strip()
+                                
+                            st.session_state.quiz_data = json.loads(clean_json)
+                            st.session_state.submitted = False
+                        else:
+                            st.error("The AI did not return a recognizable JSON format. Please click generate again.")
+                            # Prints the raw broken text to the terminal so you can debug what the AI actually said
+                            print("BROKEN AI OUTPUT:\n", raw_text) 
+                                
+                    except json.JSONDecodeError as e:
+                        st.error("The AI made a syntax error while formatting the JSON. Click generate again.")
+                        print(f"JSON ERROR: {e}\nRAW TEXT:\n{clean_json}")
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "429" in error_msg:
+                            st.warning("🚦 The server is currently too busy! We hit our 1-minute speed limit. Please wait 15 seconds and try again.")
+                        else:
+                            st.error(f"Generation Error: {e}")
 
 # --- INTERACTIVE QUIZ UI ---
 if st.session_state.quiz_data:
