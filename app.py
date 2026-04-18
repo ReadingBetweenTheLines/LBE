@@ -44,7 +44,7 @@ You must strictly engineer the options using this exact blueprint:
 - 1 Option is the HALF-RIGHT TRAP. Make the first half of the sentence perfectly accurate, but make the conclusion completely false.
 - 2 Options are PLAUSIBLE but ultimately incorrect logical leaps.
 - OPTION SYMMETRY: All 5 options MUST be visually similar in length. 
-***FORMAT 6 EXCEPTION: If the user selects Format 6 (True/False), completely ignore the 5-option rule above. Your options array MUST contain exactly two strings: ["True", "False"].***
+***FORMAT 6 EXCEPTION: If the user selects Format 6 (True/False), completely ignore the 5-option rule. Your options array MUST contain exactly two strings: ["Benar", "Salah"].***
 """
 
 FLASH_CONSTRAINTS = """
@@ -55,7 +55,7 @@ You must strictly engineer the options to mimic real UTBK SNBT HOTS standards:
 - 1 Option is the HALF-RIGHT TRAP. Plausible premise, but a factually incorrect conclusion.
 - 2 Options are highly plausible distractors based on common logical fallacies.
 - OPTION SYMMETRY: Keep all 5 options relatively symmetrical in length.
-***FORMAT 6 EXCEPTION: If the user selects Format 6 (True/False), completely ignore the 5-option rule above. Your options array MUST contain exactly two strings: ["True", "False"].***
+***FORMAT 6 EXCEPTION: If the user selects Format 6 (True/False), completely ignore the 5-option rule. Your options array MUST contain exactly two strings: ["Benar", "Salah"].***
 """
 
 JSON_SCHEMA = """
@@ -63,9 +63,9 @@ JSON_SCHEMA = """
   "text": "String (The reading passage formatted with markdown. Use a markdown table if Format 3).",
   "questions": [
     {
-      "question_stem": "String (The question, OR the statement to be evaluated if Format 6)",
+      "question_stem": "String (The question, OR the declarative statement to be evaluated if Format 6)",
       "trap_planning": "String (CRITICAL: Before writing the options, briefly state your plan for the distractors)",
-      "options": ["String (5 options for MCQs, OR just 'True' and 'False' for Format 6)"],
+      "options": ["String (5 options for MCQs, OR just 'Benar' and 'Salah' for Format 6)"],
       "correct_answer_index": Integer (0-based index for the correct option),
       "explanation": "String (Explain the correct answer. CRITICAL: THIS EXPLANATION MUST BE WRITTEN ENTIRELY IN BAHASA INDONESIA, explaining the logic clearly to an Indonesian student.)"
     }
@@ -183,9 +183,7 @@ with st.sidebar:
             
     if len(st.session_state.quiz_vault) > 0:
         st.info(f"📦 Quizzes ready for download: {len(st.session_state.quiz_vault)}")
-        
         vault_json = json.dumps(st.session_state.quiz_vault, indent=2)
-        
         st.download_button(
             label="📥 Download Vault (JSON)",
             data=vault_json,
@@ -194,7 +192,6 @@ with st.sidebar:
             type="primary",
             use_container_width=True
         )
-        
         if st.button("🗑️ Clear Vault", use_container_width=True):
             st.session_state.quiz_vault = []
             st.rerun()
@@ -210,10 +207,44 @@ if st.session_state.quiz_data:
     st.markdown("### Questions")
     user_answers = {}
     
-    for i, q in enumerate(quiz.get("questions", [])):
-        st.markdown(f"**{i+1}. {q.get('question_stem', 'Question missing')}**")
-        user_answers[i] = st.radio(f"Select answer for {i+1}", options=q.get("options", []), key=f"q_{i}", label_visibility="collapsed")
-        st.write("") 
+    # NEW: DETECT IF IT IS A TRUE/FALSE TABLE
+    is_true_false_format = False
+    if quiz.get("questions") and len(quiz["questions"]) > 0:
+        first_options = quiz["questions"][0].get("options", [])
+        if len(first_options) == 2 and ("Benar" in first_options or "True" in first_options):
+            is_true_false_format = True
+
+    if is_true_false_format:
+        # RENDER AS UTBK TABLE
+        st.markdown("**(Evaluasi Pernyataan: Pilih Benar atau Salah untuk setiap pernyataan di bawah ini)**")
+        st.write("")
+        
+        # Table Headers
+        header1, header2 = st.columns([3, 1])
+        header1.markdown("**Pernyataan**")
+        header2.markdown("**Pilihan**")
+        st.markdown("---")
+        
+        for i, q in enumerate(quiz.get("questions", [])):
+            col1, col2 = st.columns([3, 1])
+            col1.write(q.get('question_stem', 'Question missing'))
+            
+            # The horizontal radio buttons perfectly aligned on the right
+            user_answers[i] = col2.radio(
+                f"Select answer for {i+1}", 
+                options=q.get("options", ["Benar", "Salah"]), 
+                key=f"q_{i}", 
+                horizontal=True,
+                label_visibility="collapsed"
+            )
+            st.markdown("<hr style='margin: 10px 0px; opacity: 0.2;'>", unsafe_allow_html=True)
+            
+    else:
+        # RENDER AS STANDARD MULTIPLE CHOICE
+        for i, q in enumerate(quiz.get("questions", [])):
+            st.markdown(f"**{i+1}. {q.get('question_stem', 'Question missing')}**")
+            user_answers[i] = st.radio(f"Select answer for {i+1}", options=q.get("options", []), key=f"q_{i}", label_visibility="collapsed")
+            st.write("") 
     
     if not st.session_state.submitted:
         if st.button("Submit Answers", type="primary"):
@@ -228,9 +259,15 @@ if st.session_state.quiz_data:
         for i, q in enumerate(quiz.get("questions", [])):
             correct_index = q.get("correct_answer_index", q.get("correct_answer", q.get("answer", 0)))
             
+            # GRADER FIX: Safely catch "Benar" / "Salah" strings if the AI hallucinated the index
             if isinstance(correct_index, str):
                 clean_char = correct_index.strip().upper().replace('"', '')
-                correct_index = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}.get(clean_char, 0) 
+                if clean_char in ["BENAR", "TRUE"]: 
+                    correct_index = 0
+                elif clean_char in ["SALAH", "FALSE"]: 
+                    correct_index = 1
+                else:
+                    correct_index = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}.get(clean_char, 0) 
             
             try:
                 correct_index = int(correct_index)
