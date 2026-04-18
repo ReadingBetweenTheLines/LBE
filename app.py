@@ -85,7 +85,7 @@ def get_prompt_template(format_choice, topic, model_choice):
     elif format_choice == "4":
         specifics = "1. TEXT: Write a scientific text (300 words) with specific data/percentages.\n2. QUESTIONS: 4 questions (Quantitative Inference, Data Interpretation, Main Idea, Flaw)."
     elif format_choice == "5":
-        specifics = "1. TEXT: Write a scientific text (300 words) that explicitly includes a mathematical or physics formula. YOU MUST format the formula using LaTeX syntax (e.g., $$ E = mc^2 $$). Explain the variables in English.\n2. QUESTIONS: 4 questions. DO NOT ask the student to calculate numbers. Ask them to infer the inverse/direct relationships of the variables based on the text reading."
+        specifics = "1. TEXT: Write a scientific text (300 words) that explicitly includes a mathematical or physics formula. YOU MUST format the formula using LaTeX syntax. Explain the variables in English.\n2. QUESTIONS: 4 questions. DO NOT ask the student to calculate numbers. Ask them to infer the inverse/direct relationships of the variables based on the text reading."
     elif format_choice == "6": 
         specifics = "1. TEXT: Write an analytical Soshum text (300-400 words) focusing on sociology or history.\n2. QUESTIONS: 4 questions (Author's Tone, Societal Inference, Argumentative Structure, Social Causality)."
     else:
@@ -116,7 +116,6 @@ with st.sidebar:
     )
     selected_model_id = "gemini-2.5-flash-lite" if "Lite" in model_display else "gemini-2.5-flash"
     
-    # NEW: Expanded Dropdown Menu!
     format_choice = st.selectbox(
         "Select Format:", 
         [
@@ -207,6 +206,36 @@ with st.sidebar:
             st.session_state.quiz_vault = []
             st.rerun()
 
+    # --- NEW: LOAD & PLAY OFFLINE VAULT ---
+    st.divider()
+    st.header("📂 Play Offline Vault")
+    
+    uploaded_file = st.file_uploader("Upload a saved Vault (.json)", type=["json"])
+    if uploaded_file is not None:
+        try:
+            loaded_data = json.load(uploaded_file)
+            st.session_state.quiz_vault = loaded_data
+            st.success(f"Successfully loaded {len(loaded_data)} quizzes!")
+        except Exception as e:
+            st.error("Error reading file. Make sure it is a valid Vault JSON.")
+
+    if len(st.session_state.quiz_vault) > 0:
+        quiz_previews = []
+        for i, q in enumerate(st.session_state.quiz_vault):
+            first_q = q.get("questions", [{}])[0].get("question_stem", "Unknown Question")
+            quiz_previews.append(f"Quiz {i+1}: {first_q[:30]}...")
+            
+        selected_index = st.selectbox(
+            "Select a quiz to play:", 
+            range(len(quiz_previews)), 
+            format_func=lambda x: quiz_previews[x]
+        )
+        
+        if st.button("▶️ Load Selected Quiz", type="secondary", use_container_width=True):
+            st.session_state.quiz_data = st.session_state.quiz_vault[selected_index]
+            st.session_state.submitted = False
+            st.rerun()
+
 # --- INTERACTIVE QUIZ UI ---
 if st.session_state.quiz_data:
     quiz = st.session_state.quiz_data
@@ -222,7 +251,7 @@ if st.session_state.quiz_data:
     is_true_false_format = False
     if quiz.get("questions") and len(quiz["questions"]) > 0:
         first_options = quiz["questions"][0].get("options", [])
-        if len(first_options) == 2 and ("Benar" in first_options or "True" in first_options):
+        if len(first_options) == 2 and ("Benar" in first_options or "True" in first_options or "Salah" in first_options or "False" in first_options):
             is_true_false_format = True
 
     if is_true_false_format:
@@ -230,7 +259,6 @@ if st.session_state.quiz_data:
         st.markdown("**(Evaluasi Pernyataan: Pilih Benar atau Salah untuk setiap pernyataan di bawah ini)**")
         st.write("")
         
-        # Table Headers
         header1, header2 = st.columns([3, 1])
         header1.markdown("**Pernyataan**")
         header2.markdown("**Pilihan**")
@@ -269,7 +297,6 @@ if st.session_state.quiz_data:
         for i, q in enumerate(quiz.get("questions", [])):
             correct_index = q.get("correct_answer_index", q.get("correct_answer", q.get("answer", 0)))
             
-            # GRADER FIX: Safely catch "Benar" / "Salah" strings if the AI hallucinated the index
             if isinstance(correct_index, str):
                 clean_char = correct_index.strip().upper().replace('"', '')
                 if clean_char in ["BENAR", "TRUE"]: 
