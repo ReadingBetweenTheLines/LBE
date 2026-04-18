@@ -38,22 +38,24 @@ if "quiz_vault" not in st.session_state:
 # --- THE ENGINE ROOM (Prompt Splitter) ---
 LITE_CONSTRAINTS = """
 CRITICAL DISTRACTOR CALIBRATION (LITE-MODEL OVERRIDE):
-You must strictly engineer the 5 options (A, B, C, D, E) using this exact blueprint:
+You must strictly engineer the options using this exact blueprint:
 - 1 Option is the CORRECT ANSWER. It must be concise and NEVER the longest option.
 - 1 Option is the EXACT MATCH TRAP. Copy a phrase exactly from the text, but twist the context so it is factually wrong for the question.
 - 1 Option is the HALF-RIGHT TRAP. Make the first half of the sentence perfectly accurate, but make the conclusion completely false.
 - 2 Options are PLAUSIBLE but ultimately incorrect logical leaps.
 - OPTION SYMMETRY: All 5 options MUST be visually similar in length. 
+***FORMAT 6 EXCEPTION: If the user selects Format 6 (True/False), completely ignore the 5-option rule above. Your options array MUST contain exactly two strings: ["True", "False"].***
 """
 
 FLASH_CONSTRAINTS = """
 ADVANCED HOTS CALIBRATION (FLASH MODEL):
-You must strictly engineer the 5 options (A, B, C, D, E) to mimic real UTBK SNBT HOTS (Higher Order Thinking Skills) standards:
-- 1 Option is the CORRECT ANSWER. Ensure it requires deep synthesis of the text, not just surface-level reading.
+You must strictly engineer the options to mimic real UTBK SNBT HOTS standards:
+- 1 Option is the CORRECT ANSWER. Ensure it requires deep synthesis of the text.
 - 1 Option is the EXACT MATCH TRAP. Use verbatim text from the passage but apply it to the wrong context.
 - 1 Option is the HALF-RIGHT TRAP. Plausible premise, but a factually incorrect conclusion.
-- 2 Options are highly plausible distractors based on common logical fallacies related to the text.
-- OPTION SYMMETRY: Keep all 5 options relatively symmetrical in length. Do not make the correct answer obviously longer.
+- 2 Options are highly plausible distractors based on common logical fallacies.
+- OPTION SYMMETRY: Keep all 5 options relatively symmetrical in length.
+***FORMAT 6 EXCEPTION: If the user selects Format 6 (True/False), completely ignore the 5-option rule above. Your options array MUST contain exactly two strings: ["True", "False"].***
 """
 
 JSON_SCHEMA = """
@@ -61,11 +63,11 @@ JSON_SCHEMA = """
   "text": "String (The reading passage formatted with markdown. Use a markdown table if Format 3).",
   "questions": [
     {
-      "question_stem": "String",
-      "trap_planning": "String (CRITICAL: Before writing the options, briefly state your plan for the Exact Match and Half-Right traps)",
-      "options": ["String", "String", "String", "String", "String"],
-      "correct_answer_index": Integer (0 for A, 1 for B, 2 for C, 3 for D, 4 for E),
-      "explanation": "String (Explain the correct answer and explicitly point out the Exact Match and Half-Right traps)"
+      "question_stem": "String (The question, OR the statement to be evaluated if Format 6)",
+      "trap_planning": "String (CRITICAL: Before writing the options, briefly state your plan for the distractors)",
+      "options": ["String (5 options for MCQs, OR just 'True' and 'False' for Format 6)"],
+      "correct_answer_index": Integer (0-based index for the correct option),
+      "explanation": "String (Explain the correct answer. CRITICAL: THIS EXPLANATION MUST BE WRITTEN ENTIRELY IN BAHASA INDONESIA, explaining the logic clearly to an Indonesian student.)"
     }
   ]
 }
@@ -82,13 +84,14 @@ def get_prompt_template(format_choice, topic, model_choice):
         specifics = "1. TEXT: Format as a digital forum thread. YOU MUST FORMAT THE THREAD AS A STRICT MARKDOWN TABLE with two columns: 'User' and 'Post Content'. Include User1 and 5 distinct replies.\n2. QUESTIONS: 4 questions (Debate Trajectory, User Alignment, Logical Evaluation, Intent/Tone)."
     elif format_choice == "4":
         specifics = "1. TEXT: Write a scientific text (300 words) with specific data/percentages.\n2. QUESTIONS: 4 questions (Quantitative Inference, Data Interpretation, Main Idea, Flaw)."
-    else: 
+    elif format_choice == "5": 
         specifics = "1. TEXT: Write an analytical Soshum text (300-400 words) focusing on sociology or history.\n2. QUESTIONS: 4 questions (Author's Tone, Societal Inference, Argumentative Structure, Social Causality)."
+    else:
+        specifics = "1. TEXT: Write an analytical text of 300-400 words.\n2. QUESTIONS: Provide 4 declarative statements based on the text. The student must evaluate if the statement is True or False. Use the Format 6 Exception."
         
-    # Dynamically select the constraints based on the model chosen
     constraints = LITE_CONSTRAINTS if model_choice == "gemini-2.5-flash-lite" else FLASH_CONSTRAINTS
-        
     json_rules = f"\nCRITICAL OUTPUT FORMAT: Output strictly in JSON format matching this schema:\n{JSON_SCHEMA}" 
+    
     return base_intro + specifics + constraints + json_rules
 
 # --- VISUAL FRONTEND ---
@@ -105,14 +108,16 @@ with st.sidebar:
     
     st.header("⚙️ Generator Settings")
     
-    # NEW: Model Switcher UI
     model_display = st.selectbox(
         "Select AI Model:",
         ["Gemini 2.5 Flash Lite (Faster)", "Gemini 2.5 Flash (Smarter)"]
     )
     selected_model_id = "gemini-2.5-flash-lite" if "Lite" in model_display else "gemini-2.5-flash"
     
-    format_choice = st.selectbox("Select Format:", ["1. Standard Text", "2. Dual Passages", "3. Digital Thread (Table)", "4. Quantitative/Saintek", "5. Soshum"])
+    format_choice = st.selectbox(
+        "Select Format:", 
+        ["1. Standard Text", "2. Dual Passages", "3. Digital Thread (Table)", "4. Quantitative/Saintek", "5. Soshum", "6. True/False Statements"]
+    )
     user_topic = st.text_input("Topic:", placeholder="Leave blank for random...")
     
     if st.button("🚀 Generate Quiz", type="primary", use_container_width=True):
@@ -133,18 +138,15 @@ with st.sidebar:
                     client = genai.Client(api_key=user_api_key) 
                     format_num = format_choice.split(".")[0]
                     
-                    # THE TOPIC RANDOMIZER
                     if user_topic.strip():
                         final_topic = user_topic.strip()
                     else:
                         diverse_topics = ["modern pop culture and social media", "economics and bizarre business trends", "sports history or e-sports", "arts and music history", "a weird historical event", "urban legends or human behavior", "global food trends", "modern moral dilemmas"]
                         final_topic = random.choice(diverse_topics)
                     
-                    # Pass the selected model ID to get the correct prompt
                     prompt = get_prompt_template(format_num, final_topic, selected_model_id)
                     
                     try:
-                        # NATIVE JSON FORCING: Uses the dynamically selected model
                         response = client.models.generate_content(
                             model=selected_model_id, 
                             contents=prompt,
@@ -153,7 +155,6 @@ with st.sidebar:
                             )
                         )
                         
-                        # THE SCRUBBER
                         raw_text = response.text.replace("```json", "").replace("```", "").strip()
                         
                         st.session_state.quiz_data = json.loads(raw_text)
@@ -169,25 +170,20 @@ with st.sidebar:
                         else:
                             st.error(f"Generation Error: {e}")
 
-
-# --- THE OFFLINE VAULT ---
+    # --- THE OFFLINE VAULT ---
     st.divider()
     st.header("🗄️ Offline Quiz Vault")
     
-    # 1. The Save Button (Only shows up if a quiz is currently on screen)
     if st.session_state.quiz_data:
         if st.button("💾 Save Current Quiz to Vault", use_container_width=True):
-            # We add a tag so you know which model generated this specific quiz
             quiz_copy = st.session_state.quiz_data.copy()
             quiz_copy["source_model"] = selected_model_id 
             st.session_state.quiz_vault.append(quiz_copy)
             st.success(f"Added! Vault now holds {len(st.session_state.quiz_vault)} quizzes.")
             
-    # 2. The Download Button (Only shows up if there is at least 1 quiz in the vault)
     if len(st.session_state.quiz_vault) > 0:
         st.info(f"📦 Quizzes ready for download: {len(st.session_state.quiz_vault)}")
         
-        # Convert the Python vault array into a clean, formatted JSON string
         vault_json = json.dumps(st.session_state.quiz_vault, indent=2)
         
         st.download_button(
@@ -254,7 +250,7 @@ if st.session_state.quiz_data:
                     st.error(f"**Question {i+1}: Incorrect.** \n\nYou chose: {user_text} \n\nCorrect answer: {correct_text}")
                 
                 explanation_text = q.get("explanation", q.get("trap_planning", "No explanation provided."))
-                st.info(f"**Explanation:** {explanation_text}")
+                st.info(f"**Penjelasan:** {explanation_text}")
                 st.write("---")
             
         st.subheader(f"Final Score: {score} / 4")
