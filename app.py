@@ -44,7 +44,7 @@ You must strictly engineer the options using this exact blueprint:
 - 1 Option is the HALF-RIGHT TRAP. Make the first half of the sentence perfectly accurate, but make the conclusion completely false.
 - 2 Options are PLAUSIBLE but ultimately incorrect logical leaps.
 - OPTION SYMMETRY: All 5 options MUST be visually similar in length. 
-***FORMAT 6 EXCEPTION: If the user selects Format 6 (True/False), completely ignore the 5-option rule. Your options array MUST contain exactly two strings: ["Benar", "Salah"].***
+***FORMAT 7 EXCEPTION: If the user selects Format 7 (True/False), completely ignore the 5-option rule. Your options array MUST contain exactly two strings: ["Benar", "Salah"].***
 """
 
 FLASH_CONSTRAINTS = """
@@ -55,7 +55,7 @@ You must strictly engineer the options to mimic real UTBK SNBT HOTS standards:
 - 1 Option is the HALF-RIGHT TRAP. Plausible premise, but a factually incorrect conclusion.
 - 2 Options are highly plausible distractors based on common logical fallacies.
 - OPTION SYMMETRY: Keep all 5 options relatively symmetrical in length.
-***FORMAT 6 EXCEPTION: If the user selects Format 6 (True/False), completely ignore the 5-option rule. Your options array MUST contain exactly two strings: ["Benar", "Salah"].***
+***FORMAT 7 EXCEPTION: If the user selects Format 7 (True/False), completely ignore the 5-option rule. Your options array MUST contain exactly two strings: ["Benar", "Salah"].***
 """
 
 JSON_SCHEMA = """
@@ -63,9 +63,9 @@ JSON_SCHEMA = """
   "text": "String (The reading passage formatted with markdown. Use a markdown table if Format 3).",
   "questions": [
     {
-      "question_stem": "String (The question, OR the declarative statement to be evaluated if Format 6)",
+      "question_stem": "String (The question, OR the declarative statement to be evaluated if Format 7)",
       "trap_planning": "String (CRITICAL: Before writing the options, briefly state your plan for the distractors)",
-      "options": ["String (5 options for MCQs, OR just 'Benar' and 'Salah' for Format 6)"],
+      "options": ["String (5 options for MCQs, OR just 'Benar' and 'Salah' for Format 7)"],
       "correct_answer_index": Integer (0-based index for the correct option),
       "explanation": "String (Explain the correct answer. CRITICAL: THIS EXPLANATION MUST BE WRITTEN ENTIRELY IN BAHASA INDONESIA, explaining the logic clearly to an Indonesian student.)"
     }
@@ -84,10 +84,12 @@ def get_prompt_template(format_choice, topic, model_choice):
         specifics = "1. TEXT: Format as a digital forum thread. YOU MUST FORMAT THE THREAD AS A STRICT MARKDOWN TABLE with two columns: 'User' and 'Post Content'. Include User1 and 5 distinct replies.\n2. QUESTIONS: 4 questions (Debate Trajectory, User Alignment, Logical Evaluation, Intent/Tone)."
     elif format_choice == "4":
         specifics = "1. TEXT: Write a scientific text (300 words) with specific data/percentages.\n2. QUESTIONS: 4 questions (Quantitative Inference, Data Interpretation, Main Idea, Flaw)."
-    elif format_choice == "5": 
+    elif format_choice == "5":
+        specifics = "1. TEXT: Write a scientific text (300 words) that explicitly includes a mathematical or physics formula. YOU MUST format the formula using LaTeX syntax (e.g., $$ E = mc^2 $$). Explain the variables in English.\n2. QUESTIONS: 4 questions. DO NOT ask the student to calculate numbers. Ask them to infer the inverse/direct relationships of the variables based on the text reading."
+    elif format_choice == "6": 
         specifics = "1. TEXT: Write an analytical Soshum text (300-400 words) focusing on sociology or history.\n2. QUESTIONS: 4 questions (Author's Tone, Societal Inference, Argumentative Structure, Social Causality)."
     else:
-        specifics = "1. TEXT: Write an analytical text of 300-400 words.\n2. QUESTIONS: Provide 4 declarative statements based on the text. The student must evaluate if the statement is True or False. Use the Format 6 Exception."
+        specifics = "1. TEXT: Write an analytical text of 300-400 words.\n2. QUESTIONS: Provide 4 declarative statements based on the text. The student must evaluate if the statement is True or False. Use the Format 7 Exception."
         
     constraints = LITE_CONSTRAINTS if model_choice == "gemini-2.5-flash-lite" else FLASH_CONSTRAINTS
     json_rules = f"\nCRITICAL OUTPUT FORMAT: Output strictly in JSON format matching this schema:\n{JSON_SCHEMA}" 
@@ -114,9 +116,18 @@ with st.sidebar:
     )
     selected_model_id = "gemini-2.5-flash-lite" if "Lite" in model_display else "gemini-2.5-flash"
     
+    # NEW: Expanded Dropdown Menu!
     format_choice = st.selectbox(
         "Select Format:", 
-        ["1. Standard Text", "2. Dual Passages", "3. Digital Thread (Table)", "4. Quantitative/Saintek", "5. Soshum", "6. True/False Statements"]
+        [
+            "1. Standard Text", 
+            "2. Dual Passages", 
+            "3. Digital Thread (Table)", 
+            "4. Quantitative/Saintek (Standard Science)", 
+            "5. Quantitative/Saintek (Math Formula Integration)", 
+            "6. Soshum", 
+            "7. True/False Statements"
+        ]
     )
     user_topic = st.text_input("Topic:", placeholder="Leave blank for random...")
     
@@ -207,7 +218,7 @@ if st.session_state.quiz_data:
     st.markdown("### Questions")
     user_answers = {}
     
-    # NEW: DETECT IF IT IS A TRUE/FALSE TABLE
+    # DETECT IF IT IS A TRUE/FALSE TABLE
     is_true_false_format = False
     if quiz.get("questions") and len(quiz["questions"]) > 0:
         first_options = quiz["questions"][0].get("options", [])
@@ -229,7 +240,6 @@ if st.session_state.quiz_data:
             col1, col2 = st.columns([3, 1])
             col1.write(q.get('question_stem', 'Question missing'))
             
-            # The horizontal radio buttons perfectly aligned on the right
             user_answers[i] = col2.radio(
                 f"Select answer for {i+1}", 
                 options=q.get("options", ["Benar", "Salah"]), 
