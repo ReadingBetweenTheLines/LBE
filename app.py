@@ -44,6 +44,7 @@ You must strictly engineer the options using this exact blueprint:
 - 1 Option is the HALF-RIGHT TRAP. Make the first half of the sentence perfectly accurate, but make the conclusion completely false.
 - 2 Options are PLAUSIBLE but ultimately incorrect logical leaps.
 - OPTION SYMMETRY: All 5 options MUST be visually similar in length. 
+- RANDOMIZATION: You MUST randomly shuffle the position of the correct answer (it can be A, B, C, D, or E). Do NOT always put the correct answer first.
 ***FORMAT 7 EXCEPTION: If the user selects Format 7 (True/False), completely ignore the 5-option rule. Your options array MUST contain exactly two strings: ["Benar", "Salah"].***
 """
 
@@ -55,6 +56,7 @@ You must strictly engineer the options to mimic real UTBK SNBT HOTS standards:
 - 1 Option is the HALF-RIGHT TRAP. Plausible premise, but a factually incorrect conclusion.
 - 2 Options are highly plausible distractors based on common logical fallacies.
 - OPTION SYMMETRY: Keep all 5 options relatively symmetrical in length.
+- RANDOMIZATION: You MUST randomly shuffle the position of the correct answer (it can be A, B, C, D, or E). Do NOT always put the correct answer first.
 ***FORMAT 7 EXCEPTION: If the user selects Format 7 (True/False), completely ignore the 5-option rule. Your options array MUST contain exactly two strings: ["Benar", "Salah"].***
 """
 
